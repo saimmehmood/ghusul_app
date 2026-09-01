@@ -1,0 +1,36 @@
+{
+  "name": "ghusl-scheduling-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:setup": "node scripts/setup-db.mjs",
+    "db:seed": "node scripts/seed.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "next": "^15.5.25",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "resend": "^4.1.2",
+    "server-only": "^0.0.1"
+  },
+  "//overrides": "Next 15 pins a postcss range with published advisories, and an old optional sharp. Both are build-time only; these force the patched releases.",
+  "overrides": {
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "dotenv": "^16.4.7",
+    "typescript": "^5.7.3"
+  },
+  "optionalDependencies": {
+    "pg": "^8.23.0"
+  }
+}
