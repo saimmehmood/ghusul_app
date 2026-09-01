@@ -21,7 +21,9 @@ let runRaw;
 
 if (isNeon) {
   sql = neon(CONNECTION);
-  runRaw = (text) => sql.query(text);
+  // The HTTP driver exposes only the tagged-template form, so a raw statement
+  // is passed as a template with no interpolated values.
+  runRaw = (text) => sql(Object.assign([text], { raw: [text] }));
 } else {
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({

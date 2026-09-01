@@ -153,6 +153,98 @@ the interface — posting the form directly cannot get around it.
 
 ---
 
+## Telling people a day was posted
+
+There are two ways, and they are very different in what they cost you to set up.
+
+### Share to WhatsApp — works immediately, free, nothing to configure
+
+Every posted day has a **Share to WhatsApp** button. It opens WhatsApp with the
+announcement already written, so the admin picks the masjid group and sends. On
+a phone it opens the app; on a computer, WhatsApp Web. There is also a **Copy
+message** button for pasting anywhere else.
+
+This is not the WhatsApp API — it is a plain `wa.me` link. It cannot be blocked,
+costs nothing, needs no approval, and will keep working. For most masjids, which
+already run a WhatsApp group, this is the whole answer.
+
+### Email everyone — works as soon as Resend is configured
+
+Everyone's email is already verified by signing in, so there is nothing to opt
+into. Ticking **Tell everyone straight away** when posting a day emails every
+member; individual messages via Resend's batch endpoint, so nobody sees anyone
+else's address. Members can turn it off under *Change my name or phone number*.
+
+> Resend's free tier is **3,000 emails a month and 100 a day**. An announcement
+> to 80 members uses 80 of that day's 100. If your community is larger than
+> that, raise the Resend plan or rely on the WhatsApp share button.
+
+### Automated WhatsApp messages — real setup required
+
+Sending WhatsApp to each member automatically is **not** like sending email, and
+it is worth knowing why before you promise it to anyone:
+
+- Since **July 2025** Meta bills **per message** — roughly **$0.01–0.03** each in
+  the US, varying by country.
+- Any business-initiated message outside a 24-hour window must use a
+  **pre-approved template**. You cannot send free text. Template approval takes
+  hours to days.
+- You need a **verified Meta Business account** and a dedicated sender number.
+
+The code is written and waiting behind configuration. Set these to switch it on:
+
+**For testing (Twilio sandbox — not for real use):**
+
+```bash
+WHATSAPP_PROVIDER="twilio"
+TWILIO_ACCOUNT_SID="AC..."
+TWILIO_AUTH_TOKEN="..."
+TWILIO_WHATSAPP_FROM="whatsapp:+14155238886"
+```
+
+Each person must first send `join <your-sandbox-code>` to `+1 415 523 8886`.
+Twilio's sandbox is explicitly documented as testing-only.
+
+**For production (Meta Cloud API):**
+
+```bash
+WHATSAPP_PROVIDER="meta"
+WHATSAPP_TOKEN="..."
+WHATSAPP_PHONE_NUMBER_ID="..."
+WHATSAPP_TEMPLATE_NAME="ghusl_day_posted"
+```
+
+Your approved template must take four variables in this order:
+
+```
+{{1}} date        e.g. "Thursday, September 4, 2026"
+{{2}} volunteers  e.g. "3"
+{{3}} note        e.g. "After Dhuhr, at the masjid"
+{{4}} link        e.g. "https://your-app.vercel.app/schedule"
+```
+
+A suitable **Utility** template body:
+
+> Ghusl volunteers are needed on {{1}}. {{2}} volunteers needed. {{3}}. Sign up
+> here: {{4}}
+
+Members opt in by ticking *Message me on WhatsApp* and giving a phone number.
+The tickbox stays disabled until `WHATSAPP_PROVIDER` is set, so nobody signs up
+for messages that cannot arrive.
+
+### Knowing whether it actually worked
+
+Every attempt is written to `notification_log` and shown under the day on the
+admin page — how many were sent, how many failed, and the provider's own error
+text. If nothing was delivered the confirmation is **red** and says so plainly,
+because an admin must never read a green banner and wrongly assume the community
+was told. A day is only marked as announced when something actually went out.
+
+Announcements can never cost you the posting itself: the day is saved first, and
+a mail or WhatsApp outage is caught and reported rather than thrown.
+
+---
+
 ## Layout
 
 | Path | What lives there |
@@ -163,6 +255,9 @@ the interface — posting the form directly cannot get around it.
 | `src/lib/schedule.ts` | the priority-window rules that the pages read |
 | `src/lib/auth.ts` | magic-link tokens and sessions |
 | `src/lib/db.ts` | Neon in production, local Postgres in development |
+| `src/lib/notify.ts` | composes one announcement for every channel |
+| `src/lib/whatsapp.ts` | the Twilio and Meta senders |
+| `src/lib/phone.ts` | turns what people type into E.164 |
 | `db/schema.sql` | the tables |
 
 `src/lib/dates.ts` keeps service dates as plain `YYYY-MM-DD` strings all the way

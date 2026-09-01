@@ -11,7 +11,11 @@ import {
 import { APP_TIMEZONE } from "@/lib/config";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ShareRow } from "@/components/ShareRow";
-import { composeAnnouncement, whatsappShareLink } from "@/lib/notify";
+import {
+  composeAnnouncement,
+  whatsappShareLink,
+  notificationsForDays,
+} from "@/lib/notify";
 import { whatsappProvider } from "@/lib/whatsapp";
 import {
   postDayAction,
@@ -33,35 +37,48 @@ const MESSAGES: Record<string, string> = {
 };
 
 /**
- * Turns the counts an announcement action passes back into a sentence, so the
- * admin sees what was actually delivered instead of a bare "sent".
+ * Turns the counts an announcement action passes back into a sentence.
+ *
+ * Every channel is named explicitly, including the ones that failed. An admin
+ * announcing a burial must never be able to read this and wrongly conclude the
+ * community was told, so a run that delivered nothing reads as a failure and is
+ * styled as one.
  */
 function deliveryLine(params: {
   e?: string;
   ef?: string;
   w?: string;
   wf?: string;
-}): string | null {
+}): { text: string; ok: boolean } | null {
   const emailSent = Number(params.e ?? NaN);
   const emailFailed = Number(params.ef ?? 0);
   const waSent = Number(params.w ?? NaN);
   const waFailed = Number(params.wf ?? 0);
   if (Number.isNaN(emailSent) && Number.isNaN(waSent)) return null;
 
+  const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
   const parts: string[] = [];
-  if (!Number.isNaN(emailSent)) {
+
+  if (emailSent > 0) parts.push(`Emailed ${people(emailSent)}`);
+  if (emailFailed > 0) {
+    parts.push(`${emailFailed} ${emailFailed === 1 ? "email" : "emails"} failed`);
+  }
+  if (emailSent === 0 && emailFailed === 0) parts.push("No emails were sent");
+
+  if (waSent > 0) parts.push(`messaged ${people(waSent)} on WhatsApp`);
+  if (waFailed > 0) {
     parts.push(
-      emailSent > 0
-        ? `emailed ${emailSent} ${emailSent === 1 ? "person" : "people"}`
-        : "no emails sent",
+      `${waFailed} WhatsApp ${waFailed === 1 ? "message" : "messages"} failed`,
     );
   }
-  if (!Number.isNaN(waSent) && waSent > 0) {
-    parts.push(`messaged ${waSent} on WhatsApp`);
-  }
-  const failures = emailFailed + waFailed;
-  const tail = failures > 0 ? ` (${failures} could not be delivered)` : "";
-  return parts.join(", ") + tail + ".";
+
+  const delivered = (emailSent || 0) + (waSent || 0);
+  const failed = emailFailed + waFailed;
+
+  return {
+    text: parts.join(", ") + ".",
+    ok: delivered > 0 && failed === 0,
+  };
 }
 
 type Participant = { name: string; email: string; total: number };
@@ -124,6 +141,7 @@ export default async function AdminPage({
     getAllDays(admin),
     participationByMonth(),
   ]);
+  const deliveries = await notificationsForDays(days.map((d) => d.id));
 
   const today = todayInTimezone();
 
@@ -151,18 +169,27 @@ export default async function AdminPage({
       )}
 
       {(msg === "announced" || msg === "posted-announced") && (
-        <div className="notice notice-good" role="status">
+        <div
+          className={`notice ${delivery?.ok ? "notice-good" : "notice-bad"}`}
+          role="status"
+        >
           {msg === "posted-announced" && (
             <>
               <strong>The day is posted.</strong>{" "}
             </>
           )}
-          {delivery ?? "The announcement was sent."}{" "}
-          {provider === "none" && (
+          {delivery?.text ?? "The announcement was sent."}{" "}
+          {delivery && !delivery.ok && (
             <>
-              WhatsApp is not switched on, so use the{" "}
-              <strong>Share to WhatsApp</strong> button below to post it to your
-              group.
+              <strong>Nobody may have been told.</strong> Check the delivery
+              record under the day below, and use{" "}
+              <strong>Share to WhatsApp</strong> to send it by hand.
+            </>
+          )}
+          {delivery?.ok && provider === "none" && (
+            <>
+              You can also tap <strong>Share to WhatsApp</strong> below to post
+              it to your group.
             </>
           )}
         </div>
@@ -395,6 +422,37 @@ export default async function AdminPage({
                     ? `Last sent ${formatDateTime(day.notified_at)}.`
                     : "Not announced yet."}
                 </p>
+
+                {(deliveries.get(day.id) ?? []).map((record) => {
+                  const failed = record.failures > 0;
+                  return (
+                    <p
+                      key={record.channel}
+                      className="small"
+                      style={{
+                        margin: "0 0 4px",
+                        color: failed ? "var(--danger)" : "var(--text-soft)",
+                      }}
+                    >
+                      <strong>
+                        {record.channel.startsWith("whatsapp")
+                          ? "WhatsApp"
+                          : "Email"}
+                        :
+                      </strong>{" "}
+                      {record.recipients > 0
+                        ? `${record.recipients} sent`
+                        : "none sent"}
+                      {failed && `, ${record.failures} failed`}
+                      {failed && record.detail && (
+                        <>
+                          {" — "}
+                          <span className="muted">{record.detail}</span>
+                        </>
+                      )}
+                    </p>
+                  );
+                })}
 
                 <ShareRow
                   shareLink={whatsappShareLink(day)}

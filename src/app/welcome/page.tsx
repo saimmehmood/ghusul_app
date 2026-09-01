@@ -76,7 +76,7 @@ export default async function WelcomePage({
             border: "2px solid var(--border)",
             borderRadius: "var(--radius)",
             padding: "18px 20px",
-            margin: 0,
+            margin: "8px 0 0",
             background: "var(--surface)",
           }}
         >

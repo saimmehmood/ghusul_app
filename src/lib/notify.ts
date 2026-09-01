@@ -149,8 +149,13 @@ export async function announceDay(
     safely(() => sendWhatsAppBlast(whatsappRecipients, payload)),
   ]);
 
+  // The channel name is the stable key the delivery record groups by, so the
+  // provider goes in the detail rather than into the name itself.
   await recordAttempt(day.id, "email", email);
-  await recordAttempt(day.id, `whatsapp:${whatsappProvider()}`, whatsapp);
+  await recordAttempt(day.id, "whatsapp", {
+    ...whatsapp,
+    detail: `[${whatsappProvider()}] ${whatsapp.detail}`.trim(),
+  });
 
   if (email.sent > 0 || whatsapp.sent > 0) {
     await sql`
@@ -187,21 +192,39 @@ async function recordAttempt(
   }
 }
 
-/** The most recent announcement attempts, for the admin's delivery record. */
-export async function recentNotifications(dayId: string) {
-  return (await sql`
-    select channel, recipients, failures, detail, created_at
+export type NotificationRecord = {
+  day_id: string;
+  channel: string;
+  recipients: number;
+  failures: number;
+  detail: string;
+  created_at: Date;
+};
+
+/**
+ * The latest announcement attempt per channel, for every day shown on the admin
+ * page — fetched in one query rather than one per day.
+ */
+export async function notificationsForDays(
+  dayIds: string[],
+): Promise<Map<string, NotificationRecord[]>> {
+  const byDay = new Map<string, NotificationRecord[]>();
+  if (dayIds.length === 0) return byDay;
+
+  const rows = (await sql`
+    select distinct on (day_id, channel)
+           day_id, channel, recipients, failures, detail, created_at
       from notification_log
-     where day_id = ${dayId}::uuid
-     order by created_at desc
-     limit 4
-  `) as {
-    channel: string;
-    recipients: number;
-    failures: number;
-    detail: string;
-    created_at: Date;
-  }[];
+     where day_id = any(${dayIds}::uuid[])
+     order by day_id, channel, created_at desc
+  `) as NotificationRecord[];
+
+  for (const row of rows) {
+    const list = byDay.get(row.day_id) ?? [];
+    list.push(row);
+    byDay.set(row.day_id, list);
+  }
+  return byDay;
 }
 
 export { MASJID_NAME };
