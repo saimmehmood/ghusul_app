@@ -8,6 +8,8 @@ A small, deliberately plain web app for scheduling Ghusl volunteers at a masjid.
 - For the first **4 hours** after a date is posted, only people who have **not
   done Ghusl yet that month** may claim a spot.
 - After 4 hours, the date opens to **everyone**.
+- Posting a date **emails everyone**, and gives the admin a one-tap
+  **Share to WhatsApp** button for the masjid group.
 
 The interface is built for readers of every age: 18px base type, 56px buttons,
 high contrast, visible borders, pinch-zoom left enabled, and status shown with
@@ -33,7 +35,7 @@ gh repo create ghusl-schedule --private --source=. --push
 (No `gh`? Create an empty repo at github.com, then `git remote add origin <url>
 && git push -u origin main`.)
 
-### 2. Create the database — neon.tech
+### 2. Create the database — neon.com
 
 1. Sign up, create a project (any name, pick the region closest to you).
 2. Copy the **connection string**. It looks like
@@ -171,9 +173,10 @@ timezone.
 
 ## Cost
 
-Everything here fits in the free tiers: Vercel Hobby, Neon free (0.5 GB), and
-Resend free (3,000 emails/month, 100/day). A masjid sending a few sign-in links
-a week will not come close to any limit.
+Everything here fits in the free tiers: Vercel Hobby, Neon free (0.5 GB storage
+and 100 compute-hours per project per month), and Resend free (3,000
+emails/month, 100/day). A masjid sending a few sign-in links a week will not
+come close to any limit.
 
-Note that Neon's free tier suspends an idle database after a few minutes; the
+Note that Neon's free tier suspends an idle database after 5 minutes; the
 first page load after a quiet spell takes a second or two longer while it wakes.
