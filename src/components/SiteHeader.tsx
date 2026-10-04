@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { NavLink } from "@/components/NavLink";
 import { getCurrentUser } from "@/lib/auth";
 import { MASJID_NAME } from "@/lib/config";
 
@@ -16,15 +17,15 @@ export async function SiteHeader() {
         <nav className="nav" aria-label="Main">
           {user ? (
             <>
-              <Link href="/schedule">Schedule</Link>
-              <Link href="/mine">My days</Link>
-              {user.is_admin && <Link href="/admin">Admin</Link>}
+              <NavLink href="/schedule">Schedule</NavLink>
+              <NavLink href="/mine">My days</NavLink>
+              {user.is_admin && <NavLink href="/admin">Admin</NavLink>}
               <form action="/signout" method="post">
                 <button type="submit">Sign out</button>
               </form>
             </>
           ) : (
-            <Link href="/signin">Sign in</Link>
+            <NavLink href="/signin">Sign in</NavLink>
           )}
         </nav>
       </div>
