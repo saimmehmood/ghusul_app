@@ -82,7 +82,7 @@ Make a Gmail account for the app, e.g. `ghusl@gmail.com`, then:
 
 1. Turn on **2-Step Verification** for that account (App Passwords are not
    offered without it).
-2. Go to **google.com/apppasswords**, create one, and copy the 16-character
+2. Go to **myaccount.google.com/apppasswords**, create one, and copy the 16-character
    password.
 3. On Vercel, set:
 
