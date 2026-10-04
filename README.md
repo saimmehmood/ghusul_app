@@ -71,19 +71,57 @@ npm run db:setup
 > does, set `APP_URL` to the real URL and redeploy — sign-in links are built
 > from it.
 
-### 5. Sign-in emails — resend.com
+### 5. Sending email
 
-1. Sign up, go to **API Keys**, create one, paste it into `RESEND_API_KEY` on
-   Vercel, and redeploy.
+Two ways. Pick **A** if the masjid has no domain of its own, which is the
+common case starting out.
+
+#### A. A Gmail account — no domain needed
+
+Make a Gmail account for the app, e.g. `ghusl@gmail.com`, then:
+
+1. Turn on **2-Step Verification** for that account (App Passwords are not
+   offered without it).
+2. Go to **google.com/apppasswords**, create one, and copy the 16-character
+   password.
+3. On Vercel, set:
+
+   | Name | Value |
+   |---|---|
+   | `SMTP_USER` | the full Gmail address |
+   | `SMTP_PASS` | the 16-character App Password — **not** the account password |
+   | `EMAIL_FROM` | `Your Masjid Ghusl Schedule <the-same-gmail-address>` |
+
+4. Redeploy.
+
+This delivers to **anybody**, which is the point. Gmail allows roughly 500
+messages a day — ample for a masjid, but not a bulk mailing list. Replies land
+in that Gmail inbox, so it doubles as the address people can write back to.
+
+`EMAIL_FROM` must be the same address as `SMTP_USER`; Gmail rewrites a sender
+it does not own, so a mismatch is silently ignored.
+
+#### B. Resend with your own domain
+
+1. Sign up at resend.com, go to **API Keys**, create one, and set it as
+   `RESEND_API_KEY` on Vercel.
 2. **Important limitation:** with the default `onboarding@resend.dev` sender,
-   Resend will only deliver to **the address you signed up with**. That is fine
-   for showing a friend. To email the whole community, add your domain under
-   **Domains** in Resend, verify it, and set
+   Resend only delivers to **the address you signed up with**. To reach the
+   whole community, add a domain you own under **Domains**, verify it by adding
+   the DNS records it gives you, and set
    `EMAIL_FROM="Ghusl Schedule <ghusl@yourmasjid.org>"`.
 
-If `RESEND_API_KEY` is left blank the app still works — sign-in links are
-printed to the server log instead of emailed. Useful for local testing, not for
-real use.
+A made-up domain will not work: verification requires adding DNS records, which
+needs control of the domain. Mail sent from a domain you do not own fails SPF
+and DKIM checks and is rejected or junked by Gmail and Outlook.
+
+#### Neither configured
+
+The app still works — sign-in links are printed to the server log instead of
+emailed. Useful for local testing, not for real use.
+
+SMTP takes precedence when `SMTP_USER` and `SMTP_PASS` are both set; otherwise
+`RESEND_API_KEY` is used.
 
 ### 6. Make yourself the admin
 
@@ -168,7 +206,7 @@ This is not the WhatsApp API — it is a plain `wa.me` link. It cannot be blocke
 costs nothing, needs no approval, and will keep working. For most masjids, which
 already run a WhatsApp group, this is the whole answer.
 
-### Email everyone — works as soon as Resend is configured
+### Email everyone — works as soon as email sending is configured
 
 Everyone's email is already verified by signing in, so there is nothing to opt
 into. Ticking **Tell everyone straight away** when posting a day emails every
@@ -270,8 +308,8 @@ timezone.
 
 Everything here fits in the free tiers: Vercel Hobby, Neon free (0.5 GB storage
 and 100 compute-hours per project per month), and Resend free (3,000
-emails/month, 100/day). A masjid sending a few sign-in links a week will not
-come close to any limit.
+emails/month, 100/day) or a Gmail account (about 500 messages/day). A masjid
+sending a few sign-in links a week will not come close to any limit.
 
 Note that Neon's free tier suspends an idle database after 5 minutes; the
 first page load after a quiet spell takes a second or two longer while it wakes.

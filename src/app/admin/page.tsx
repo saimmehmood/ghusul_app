@@ -26,6 +26,10 @@ import {
   announceDayAction,
 } from "./actions";
 
+// Announcing a day sends one message per volunteer over SMTP, which takes
+// longer than a batched API call. 60s is the most a Vercel Hobby function gets.
+export const maxDuration = 60;
+
 const MESSAGES: Record<string, string> = {
   posted: "The day is posted. The 4-hour priority window has started now.",
   cancelled: "That day has been cancelled and removed from the schedule.",

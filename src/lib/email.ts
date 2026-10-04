@@ -1,11 +1,58 @@
 import "server-only";
 
+import nodemailer, { type Transporter } from "nodemailer";
 import { Resend } from "resend";
 
 import { MASJID_NAME } from "./config";
 
 const FROM =
   process.env.EMAIL_FROM || "Masjid Ghusl Schedule <onboarding@resend.dev>";
+
+/**
+ * Two ways to send, picked in this order:
+ *
+ *   1. SMTP (SMTP_USER + SMTP_PASS) — e.g. a Gmail account with an app
+ *      password. Delivers to anybody without owning a domain, which is what a
+ *      masjid starting out actually has.
+ *   2. Resend (RESEND_API_KEY) — needs a verified domain before it will send
+ *      to anyone other than the account holder.
+ *
+ * With neither configured the message is printed to the server log, so the app
+ * stays usable before any email is set up.
+ */
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+
+function smtpIsConfigured(): boolean {
+  return Boolean(SMTP_USER && SMTP_PASS);
+}
+
+// One pooled transport per server instance. Gmail is far happier reusing a
+// connection than opening one per message when a whole roster is announced.
+let transporter: Transporter | null = null;
+
+function smtpTransport(): Transporter {
+  transporter ??= nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: Number(process.env.SMTP_PORT || 465) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    pool: true,
+    maxConnections: 3,
+  });
+  return transporter;
+}
+
+/** Runs tasks a few at a time, so a long roster neither crawls nor floods. */
+async function inBatches<T>(
+  items: T[],
+  size: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map(run));
+  }
+}
 
 /**
  * Sends the sign-in link. When RESEND_API_KEY is not configured the link is
@@ -15,11 +62,27 @@ const FROM =
 export async function sendSignInEmail(to: string, link: string): Promise<void> {
   const key = process.env.RESEND_API_KEY;
 
+  if (smtpIsConfigured()) {
+    try {
+      await smtpTransport().sendMail({
+        from: FROM,
+        to,
+        subject: `Your sign-in link for ${MASJID_NAME}`,
+        text: signInText(link),
+        html: signInHtml(link),
+      });
+    } catch (err) {
+      console.error("SMTP failed to send sign-in email:", err);
+      throw new Error("We could not send the email. Please try again.");
+    }
+    return;
+  }
+
   if (!key) {
     console.log(
       `\n────────────────────────────────────────────────────────\n` +
         `  SIGN-IN LINK for ${to}\n` +
-        `  (no RESEND_API_KEY set, so nothing was emailed)\n\n` +
+        `  (no email transport configured, so nothing was emailed)\n\n` +
         `  ${link}\n` +
         `────────────────────────────────────────────────────────\n`,
     );
@@ -31,16 +94,7 @@ export async function sendSignInEmail(to: string, link: string): Promise<void> {
     from: FROM,
     to,
     subject: `Your sign-in link for ${MASJID_NAME}`,
-    text: [
-      `Assalamu alaikum,`,
-      ``,
-      `Tap the link below to sign in to ${MASJID_NAME}.`,
-      ``,
-      link,
-      ``,
-      `This link works once and expires in 30 minutes.`,
-      `If you did not ask to sign in, you can ignore this email.`,
-    ].join("\n"),
+    text: signInText(link),
     html: signInHtml(link),
   });
 
@@ -48,6 +102,19 @@ export async function sendSignInEmail(to: string, link: string): Promise<void> {
     console.error("Resend failed to send sign-in email:", error);
     throw new Error("We could not send the email. Please try again.");
   }
+}
+
+function signInText(link: string): string {
+  return [
+    `Assalamu alaikum,`,
+    ``,
+    `Tap the link below to sign in to ${MASJID_NAME}.`,
+    ``,
+    link,
+    ``,
+    `This link works once and expires in 30 minutes.`,
+    `If you did not ask to sign in, you can ignore this email.`,
+  ].join("\n");
 }
 
 function signInHtml(link: string): string {
@@ -96,11 +163,40 @@ export async function sendDayAnnouncementEmails(
     return { sent: 0, failed: 0, detail: "Nobody is set to receive emails." };
   }
 
+  if (smtpIsConfigured()) {
+    const html = announcementHtml(body);
+    let sent = 0;
+    const errors: string[] = [];
+
+    // One message per person rather than a BCC blast, so nobody sees the rest
+    // of the congregation's addresses.
+    await inBatches(recipients, 4, async (person) => {
+      try {
+        await smtpTransport().sendMail({
+          from: FROM,
+          to: person.email,
+          subject,
+          text: body.text,
+          html,
+        });
+        sent += 1;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
+    });
+
+    return {
+      sent,
+      failed: recipients.length - sent,
+      detail: errors.slice(0, 3).join(" | "),
+    };
+  }
+
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.log(
       `\n──────────────────────────────────────────────\n` +
-        `  ANNOUNCEMENT (no RESEND_API_KEY, not emailed)\n` +
+        `  ANNOUNCEMENT (no email transport, not emailed)\n` +
         `  would go to ${recipients.length} people\n\n` +
         `  ${subject}\n\n${body.text}\n` +
         `──────────────────────────────────────────────\n`,
@@ -108,7 +204,7 @@ export async function sendDayAnnouncementEmails(
     return {
       sent: 0,
       failed: 0,
-      detail: `No email key set — the announcement for ${recipients.length} people was printed to the server log instead.`,
+      detail: `No email transport set — the announcement for ${recipients.length} people was printed to the server log instead.`,
     };
   }
 
