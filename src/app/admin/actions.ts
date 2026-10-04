@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { requireAdmin } from "@/lib/auth";
+import { isValidEmail, normalizeEmail, requireAdmin } from "@/lib/auth";
 import { sql } from "@/lib/db";
+import { toE164 } from "@/lib/phone";
 import { announceDay, type AnnounceableDay } from "@/lib/notify";
 
 /** Everything composeAnnouncement needs, for one day. */
@@ -167,4 +168,68 @@ export async function removeVolunteerAction(formData: FormData): Promise<void> {
 
   refresh();
   redirect("/admin?msg=removed");
+}
+
+/**
+ * Adds somebody who has not signed in yet — the usual case being an admin
+ * entering the people already on the masjid's paper list, so they start
+ * receiving announcements without having to find the app first.
+ *
+ * No password or invitation is involved: the person signs in whenever they
+ * like with this address and finds their record waiting.
+ */
+export async function addPersonAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const name = String(formData.get("name") || "").trim().slice(0, 80);
+  const email = normalizeEmail(String(formData.get("email") || ""));
+  const phone = String(formData.get("phone") || "").trim().slice(0, 40);
+
+  if (!isValidEmail(email)) {
+    redirect("/admin?msg=bad-person-email");
+  }
+
+  const e164 = phone ? toE164(phone) : null;
+
+  const added = (await sql`
+    insert into users (email, name, phone, phone_e164)
+    values (${email}, ${name}, ${phone}, ${e164 ?? ""})
+    on conflict (email) do nothing
+    returning id
+  `) as { id: string }[];
+
+  refresh();
+  redirect(added.length === 0 ? "/admin?msg=person-exists" : "/admin?msg=person-added");
+}
+
+/**
+ * Removes somebody from the list entirely, along with their signup history —
+ * sessions and signups are cascaded by the schema, login tokens are keyed by
+ * address so they go here.
+ *
+ * This is not a ban. Signing in with the same address creates a fresh record,
+ * which is the right behaviour for a masjid: the list is a convenience, not a
+ * gate.
+ */
+export async function removePersonAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const userId = String(formData.get("userId") || "");
+  if (!userId) redirect("/admin");
+
+  // Removing yourself would drop your own session mid-request and leave the
+  // masjid with one fewer admin than whoever did it expected.
+  if (userId === admin.id) {
+    redirect("/admin?msg=person-self");
+  }
+
+  const removed = (await sql`
+    delete from users where id = ${userId}::uuid returning email
+  `) as { email: string }[];
+
+  if (removed.length > 0) {
+    await sql`delete from login_tokens where email = ${removed[0].email}`;
+  }
+
+  refresh();
+  redirect(removed.length === 0 ? "/admin?msg=person-missing" : "/admin?msg=person-removed");
 }

@@ -24,6 +24,8 @@ import {
   repostDayAction,
   removeVolunteerAction,
   announceDayAction,
+  addPersonAction,
+  removePersonAction,
 } from "./actions";
 
 // Announcing a day sends one message per volunteer over SMTP, which takes
@@ -37,6 +39,13 @@ const MESSAGES: Record<string, string> = {
   reposted: "The priority window has been restarted from now.",
   removed: "That volunteer has been taken off the day.",
   "bad-date": "Please pick a valid date.",
+  "person-added":
+    "That person has been added. They will receive announcements from now on.",
+  "person-exists": "Somebody with that email address is already on the list.",
+  "bad-person-email": "Please enter a valid email address for that person.",
+  "person-removed": "That person has been removed from the list.",
+  "person-missing": "That person was not found — they may already be removed.",
+  "person-self": "You cannot remove yourself. Ask another admin to do it.",
   "announce-missing": "That day could not be found, so nothing was sent.",
 };
 
@@ -125,6 +134,40 @@ async function participationByMonth(): Promise<
   return months.slice(0, 3);
 }
 
+type Person = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  is_admin: boolean;
+  created_at: string;
+  total: number;
+};
+
+/**
+ * Everybody on the list, whether or not they have ever volunteered, with how
+ * many Ghusls they have done. Blank names sort last so the people an admin may
+ * still need to chase for details are together at the bottom.
+ */
+async function allPeople(): Promise<Person[]> {
+  return (await sql`
+    select u.id,
+           u.name,
+           u.email,
+           u.phone,
+           u.is_admin,
+           u.created_at,
+           count(s.id) filter (where d.cancelled_at is null)::int as total
+      from users u
+      left join signups s     on s.user_id = u.id
+      left join ghusl_days d  on d.id = s.day_id
+     group by u.id
+     order by case when u.name = '' then 1 else 0 end,
+              lower(u.name),
+              u.email
+  `) as Person[];
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -141,9 +184,10 @@ export default async function AdminPage({
   const delivery = deliveryLine(counts);
   const provider = whatsappProvider();
 
-  const [days, participation] = await Promise.all([
+  const [days, participation, people] = await Promise.all([
     getAllDays(admin),
     participationByMonth(),
+    allPeople(),
   ]);
   const deliveries = await notificationsForDays(days.map((d) => d.id));
 
@@ -162,7 +206,12 @@ export default async function AdminPage({
       {msg && MESSAGES[msg] && (
         <div
           className={`notice ${
-            msg === "bad-date" || msg === "announce-missing"
+            msg === "bad-date" ||
+            msg === "announce-missing" ||
+            msg === "bad-person-email" ||
+            msg === "person-exists" ||
+            msg === "person-missing" ||
+            msg === "person-self"
               ? "notice-bad"
               : "notice-good"
           }`}
@@ -288,6 +337,116 @@ export default async function AdminPage({
             Post this day
           </SubmitButton>
         </form>
+      </section>
+
+      <section className="card">
+        <h2>People</h2>
+        <p className="muted small" style={{ margin: "4px 0 18px" }}>
+          Everybody the app knows about. People appear here the first time they
+          sign in, and you can add somebody yourself so they start getting
+          announcements before they have ever opened the app.
+        </p>
+
+        <form action={addPersonAction} className="stack" style={{ marginBottom: 28 }}>
+          <div className="field">
+            <label htmlFor="person_name">Name</label>
+            <input
+              id="person_name"
+              name="name"
+              type="text"
+              className="input"
+              maxLength={80}
+              placeholder="Yusuf Ali"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="person_email">Email address</label>
+            <p className="hint">
+              This is how they sign in and how announcements reach them.
+            </p>
+            <input
+              id="person_email"
+              name="email"
+              type="email"
+              className="input"
+              required
+              placeholder="yusuf@example.com"
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="person_phone">Phone number</label>
+            <p className="hint">Optional. Only used if WhatsApp is set up.</p>
+            <input
+              id="person_phone"
+              name="phone"
+              type="tel"
+              className="input"
+              maxLength={40}
+              placeholder="(905) 555-0123"
+            />
+          </div>
+
+          <SubmitButton className="btn btn-primary btn-block" pendingLabel="Adding…">
+            Add this person
+          </SubmitButton>
+        </form>
+
+        {people.length === 0 ? (
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Nobody is on the list yet.
+          </p>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Ghusls</th>
+                  <th>Remove</th>
+                </tr>
+              </thead>
+              <tbody>
+                {people.map((person) => (
+                  <tr key={person.id}>
+                    <td>
+                      {person.name || "—"}
+                      {person.is_admin && (
+                        <span className="muted small"> (admin)</span>
+                      )}
+                    </td>
+                    <td>{person.email}</td>
+                    <td>{person.phone || "—"}</td>
+                    <td>{person.total}</td>
+                    <td>
+                      {person.id === admin.id ? (
+                        <span className="muted small">You</span>
+                      ) : (
+                        <form action={removePersonAction}>
+                          <input type="hidden" name="userId" value={person.id} />
+                          <SubmitButton
+                            className="btn btn-danger"
+                            pendingLabel="Removing…"
+                          >
+                            Remove
+                          </SubmitButton>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="muted small" style={{ margin: "16px 0 0" }}>
+          Removing somebody deletes their record and their signup history. It
+          does not block them — signing in again puts them back on the list.
+        </p>
       </section>
 
       <section className="card">
